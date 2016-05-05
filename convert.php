@@ -5,10 +5,19 @@ mb_internal_encoding('UTF-8');
 function convertAndroidToCsv($sourceFile, $targetDir)
 {
     $csvStr = '';
-    $translations = new SimpleXMLElement(file_get_contents($sourceFile));
+    $xmlStr = file_get_contents($sourceFile);
+    $translations = new SimpleXMLElement($xmlStr);
     foreach ($translations->string as $tr) {
         $name = $tr->attributes()[0] . '';
         $csvStr .= '"'. $name .'";"'. str_replace('"', "\\\"", $tr) .'"' . "\n";
+    }
+    if (strpos($xmlStr, 'string-array')) {
+        foreach ($translations->children() as $tr) {
+            $name = $tr->attributes()[0] . '';
+            foreach ($tr->item as $item) {
+                $csvStr .= '"'. $name .'";"'. str_replace('"', "\\\"", $item) .'"' . "\n";
+            }
+        }
     }
     $targetFile = rtrim($targetDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . basename($sourceFile) . '.csv';
     file_put_contents($targetFile, $csvStr);
@@ -34,23 +43,44 @@ function convertiOSToCsv($sourceFile, $targetDir)
     echo "[INFO] " . $targetFile . " created.\n";
 }
 
-function convertCsv($sourceFile, $targetDir, $targetPlatform)
+function convertCsvToiOS($sourceFile, $targetDir)
 {
     $translationStr = '';
     $csvLines = file($sourceFile);
     foreach ($csvLines as $csvLine) {
         $langArray = str_getcsv(trim($csvLine), ';', '"');
-        if (mb_strtolower($targetPlatform)=='ios') {
-            $translationStr .= '"'. $langArray[0] .'"="'. str_replace('"', "\\\"", $langArray[1])  .'";' . "\n";
+        $translationStr .= '"'. $langArray[0] .'"="'. str_replace('"', "\\\"", $langArray[1])  .'";' . "\n";
+    }
+    $targetFile = rtrim($targetDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . basename($sourceFile) . '.strings';
+    file_put_contents($targetFile, $translationStr);
+    echo "[INFO] " . $targetFile . " created.\n";
+}
+
+function convertCsvToAndroid($sourceFile, $targetDir)
+{
+    $translationStr   = '';
+    $translationArray = array();
+    $csvLines = file($sourceFile);
+    foreach ($csvLines as $csvLine) {
+        $langArray = str_getcsv(trim($csvLine), ';', '"');
+        if (isset($translationArray[ $langArray[0] ])===false) {
+            $translationArray[ $langArray[0] ] = array();
+        }
+        $translationArray[ $langArray[0] ][] = $langArray[1];
+    }
+    foreach ( $translationArray as $key => $trArray) {
+        if (count($trArray)>1) {
+            $translationStr .= '<string-array name="'. $key .'">'."\n";
+            foreach ($trArray as $tr) {
+                $translationStr .= '<item>'. $tr .'</item>'."\n";
+            }
+            $translationStr .= '</string-array>'."\n";
         } else {
-            $translationStr .= '<string name="'. $langArray[0] .'">'. $langArray[1]  .'</string>' . "\n";
+            $translationStr .= '<string name="'. $key .'">'. $trArray[0]  .'</string>' . "\n";
         }
     }
-    $targetExt  =  mb_strtolower($targetPlatform)=='ios'?'strings':'xml';
-    if ($targetExt=='xml') {
-        $translationStr = '<resources>' . "\n" . $translationStr . "\n" . '</resources>';
-    }
-    $targetFile = rtrim($targetDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . basename($sourceFile) . '.' . $targetExt;
+    $translationStr = '<resources>' . "\n" . $translationStr . "\n" . '</resources>';
+    $targetFile = rtrim($targetDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . basename($sourceFile) . '.xml';
     file_put_contents($targetFile, $translationStr);
     echo "[INFO] " . $targetFile . " created.\n";
 }
@@ -81,7 +111,11 @@ switch ($sourceFileExt) {
         break;
 
     case 'csv':
-        convertCsv($sourceFile, $targetDir, $targetPlatform);
+        if (mb_strtolower($targetPlatform)=='ios') {
+            convertCsvToiOS($sourceFile, $targetDir);
+        } else {
+            convertCsvToAndroid($sourceFile, $targetDir);
+        }
         break;
 
     default:
